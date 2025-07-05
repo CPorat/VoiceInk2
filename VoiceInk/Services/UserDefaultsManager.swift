@@ -8,6 +8,10 @@ extension UserDefaults {
         static let audioInputMode = "audioInputMode"
         static let selectedAudioDeviceUID = "selectedAudioDeviceUID"
         static let prioritizedDevices = "prioritizedDevices"
+        static let activationId = "VoiceInkActivationId"
+        static let licenseRequiresActivation = "VoiceInkLicenseRequiresActivation"
+        static let hasLaunchedBefore = "VoiceInkHasLaunchedBefore"
+        static let deviceIdentifier = "VoiceInkDeviceIdentifier"
     }
     
     // MARK: - AI Provider API Key
@@ -44,5 +48,15 @@ extension UserDefaults {
     var prioritizedDevicesData: Data? {
         get { data(forKey: Keys.prioritizedDevices) }
         set { setValue(newValue, forKey: Keys.prioritizedDevices) }
+    }
+    
+    // MARK: - License Cleanup
+    func clearLicenseData() {
+        removeObject(forKey: Keys.licenseKey)
+        removeObject(forKey: Keys.trialStartDate)
+        removeObject(forKey: Keys.activationId)
+        removeObject(forKey: Keys.licenseRequiresActivation)
+        removeObject(forKey: Keys.hasLaunchedBefore)
+        removeObject(forKey: Keys.deviceIdentifier)
     }
 } 
