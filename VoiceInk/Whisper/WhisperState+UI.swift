@@ -102,7 +102,7 @@ extension WhisperState {
     }
     
     @objc func handleLicenseStatusChanged() {
-        self.licenseViewModel = LicenseViewModel()
+        // License status changes no longer require action - always licensed
     }
     
     @objc func handlePromptChange() {

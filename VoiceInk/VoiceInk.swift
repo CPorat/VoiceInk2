@@ -80,6 +80,18 @@ struct VoiceInkApp: App {
         activeWindowService.configure(with: enhancementService)
         activeWindowService.configureWhisperState(whisperState)
         _activeWindowService = StateObject(wrappedValue: activeWindowService)
+        
+        // Perform one-time license data cleanup for existing users
+        performOneTimeLicenseCleanup()
+    }
+    
+    private func performOneTimeLicenseCleanup() {
+        let cleanupKey = "hasPerformedLicenseCleanup_v2"
+        if !UserDefaults.standard.bool(forKey: cleanupKey) {
+            UserDefaults.standard.clearLicenseData()
+            UserDefaults.standard.set(true, forKey: cleanupKey)
+            print("🧹 Performed one-time license data cleanup")
+        }
     }
     
     var body: some Scene {
