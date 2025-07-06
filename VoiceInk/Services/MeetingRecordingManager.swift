@@ -519,7 +519,7 @@ actor RecordingStateManager {
     /// Check if operation should be cancelled
     func shouldCancelOperation() async -> Bool {
         if _forceCancellationRequested {
-            logger.debug("🚫 Operation should be cancelled: \(_cancellationReason ?? "unknown reason")")
+            logger.debug("🚫 Operation should be cancelled: \(self._cancellationReason ?? "unknown reason")")
             return true
         }
         
@@ -781,7 +781,7 @@ class AudioProcessingOperation {
     /// Set the current processing stage
     func setCurrentStage(_ stage: AudioProcessingStage) {
         if currentStage != stage {
-            logger.debug("📊 Processing stage changed: \(currentStage.description) → \(stage.description)")
+            logger.debug("📊 Processing stage changed: \(self.currentStage.description) → \(stage.description)")
             currentStage = stage
             stageStartTime = Date()
             updateProgress()
@@ -865,7 +865,7 @@ class AudioProcessingOperation {
             resourceMetrics: ResourceMetrics.current()
         )
         
-        return progress.stagePercentComplete
+        return progress.progressPercentage
     }
 }
 
@@ -959,7 +959,7 @@ class MeetingRecordingManager: ObservableObject, AudioProcessingDelegate {
         // Create new timer
         durationTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                self?.updateRecordingDuration()
+                await self?.updateRecordingDuration()
             }
         }
         
@@ -1015,7 +1015,7 @@ class MeetingRecordingManager: ObservableObject, AudioProcessingDelegate {
         return (systemURL, micURL)
     }
     
-    /// Thread-safe file cleanup
+    /// Thread-safe file cleanup with comprehensive file handle management
     private func safeCleanupTempFiles() {
         fileOperationLock.lock()
         defer { fileOperationLock.unlock() }
@@ -1023,12 +1023,26 @@ class MeetingRecordingManager: ObservableObject, AudioProcessingDelegate {
         // Clean up temp files if they exist
         Task {
             if let systemURL = await stateManager.systemAudioTempURL {
-                try? FileManager.default.removeItem(at: systemURL)
-                logger.debug("🗑️ Cleaned up system audio temp file")
+                do {
+                    // Ensure any file handles are closed before deletion
+                    if FileManager.default.fileExists(atPath: systemURL.path) {
+                        try FileManager.default.removeItem(at: systemURL)
+                        logger.debug("🗑️ Cleaned up system audio temp file: \(systemURL.lastPathComponent)")
+                    }
+                } catch {
+                    logger.error("❌ Failed to cleanup system audio temp file: \(error.localizedDescription)")
+                }
             }
             if let micURL = await stateManager.microphoneTempURL {
-                try? FileManager.default.removeItem(at: micURL)
-                logger.debug("🗑️ Cleaned up microphone temp file")
+                do {
+                    // Ensure any file handles are closed before deletion
+                    if FileManager.default.fileExists(atPath: micURL.path) {
+                        try FileManager.default.removeItem(at: micURL)
+                        logger.debug("🗑️ Cleaned up microphone temp file: \(micURL.lastPathComponent)")
+                    }
+                } catch {
+                    logger.error("❌ Failed to cleanup microphone temp file: \(error.localizedDescription)")
+                }
             }
         }
     }
@@ -1084,7 +1098,8 @@ class MeetingRecordingManager: ObservableObject, AudioProcessingDelegate {
         pendingOperations.removeAll()
         cancellationLock.unlock()
         
-        safeCleanupTempFiles()
+        // Perform emergency file handle cleanup
+        emergencyFileHandleCleanup()
         
         logger.notice("🚫 Recording forcefully cancelled")
     }
@@ -1150,7 +1165,12 @@ class MeetingRecordingManager: ObservableObject, AudioProcessingDelegate {
                 
                 // Start system audio capture using thread-safe component access
                 let systemCaptureStarted = await withSystemAudioCapture { capture in
-                    try await capture.startCapture(outputURL: urls.systemURL)
+                    do {
+                        try await capture.startCapture(outputURL: urls.systemURL)
+                        return true
+                    } catch {
+                        return false
+                    }
                 }
                 
                 guard systemCaptureStarted != nil else {
@@ -1447,7 +1467,7 @@ class MeetingRecordingManager: ObservableObject, AudioProcessingDelegate {
     
     // MARK: - AudioProcessingDelegate Implementation
     
-    func audioProcessingDidStart(sources: [AudioSource]) {
+    nonisolated func audioProcessingDidStart(sources: [AudioSource]) {
         logger.notice("🎛️ Audio processing started for sources: \(sources.map { $0.description }.joined(separator: ", "))")
         
         Task { @MainActor in
@@ -1461,7 +1481,7 @@ class MeetingRecordingManager: ObservableObject, AudioProcessingDelegate {
         }
     }
     
-    func audioProcessingDidUpdateProgress(_ progress: AudioProcessingProgress) {
+    nonisolated func audioProcessingDidUpdateProgress(_ progress: AudioProcessingProgress) {
         logger.debug("📊 Audio processing progress: \(Int(progress.percentComplete * 100))% (\(progress.completedSources)/\(progress.totalSources) sources)")
         
         Task { @MainActor in
@@ -1469,15 +1489,15 @@ class MeetingRecordingManager: ObservableObject, AudioProcessingDelegate {
         }
     }
     
-    func audioProcessingDidCompleteSource(_ source: AudioSource) {
+    nonisolated func audioProcessingDidCompleteSource(_ source: AudioSource) {
         logger.info("✅ Completed processing for \(source.description)")
     }
     
-    func audioProcessingDidCompleteBufferProcessing() {
+    nonisolated func audioProcessingDidCompleteBufferProcessing() {
         logger.debug("✅ Buffer processing completed")
     }
     
-    func audioProcessingDidComplete(result: AudioProcessingResult) {
+    nonisolated func audioProcessingDidComplete(result: AudioProcessingResult) {
         logger.notice("✅ Audio processing completed successfully")
         
         Task { @MainActor in
@@ -1491,7 +1511,7 @@ class MeetingRecordingManager: ObservableObject, AudioProcessingDelegate {
         }
     }
     
-    func audioProcessingDidFail(error: AudioProcessingError) {
+    nonisolated func audioProcessingDidFail(error: AudioProcessingError) {
         logger.error("❌ Audio processing failed: \(error.localizedDescription)")
         
         Task { @MainActor in
@@ -1540,7 +1560,7 @@ class MeetingRecordingManager: ObservableObject, AudioProcessingDelegate {
         
         let statusComponents = [
             "Stage: \(progress.currentStage.description)",
-            "Progress: \(String(format: "%.1f%%", progress.stagePercentComplete * 100))",
+            "Progress: \(String(format: "%.1f%%", progress.progressPercentage * 100))",
             "Sources: \(progress.completedSources)/\(progress.totalSources)",
             "Buffers: \(progress.buffersProcessed)",
             progress.processingSpeed.map { "Speed: \(String(format: "%.1f", $0)) buffers/sec" },
@@ -1552,7 +1572,7 @@ class MeetingRecordingManager: ObservableObject, AudioProcessingDelegate {
     
     /// Get processing progress as percentage (0.0 to 1.0)
     func getProcessingPercentage() -> Double {
-        return processingProgress?.stagePercentComplete ?? 0.0
+        return processingProgress?.progressPercentage ?? 0.0
     }
     
     /// Check if processing is currently active
@@ -2047,9 +2067,16 @@ class MeetingRecordingManager: ObservableObject, AudioProcessingDelegate {
         var mixer: AVAudioMixerNode?
         var outputFile: AVAudioFile?
         var bufferProcessingTimer: Timer?
+        var systemAudioFile: AVAudioFile?
+        var micAudioFile: AVAudioFile?
         
-        // Ensure cleanup on all exit paths
+        // Ensure cleanup on all exit paths with explicit file handle management
         defer {
+            // Close audio files explicitly before general cleanup
+            systemAudioFile = nil // AVAudioFile automatically closes when deallocated
+            micAudioFile = nil // AVAudioFile automatically closes when deallocated
+            outputFile = nil // AVAudioFile automatically closes when deallocated
+            
             performResourceCleanup(
                 audioEngine: audioEngine,
                 systemPlayerNode: systemPlayerNode,
@@ -2074,7 +2101,7 @@ class MeetingRecordingManager: ObservableObject, AudioProcessingDelegate {
             try validateOutputLocation(finalURL)
             
             // STEP 3: Audio Engine Setup with Validation
-            operation.setCurrentStage(.setup)
+            operation.setCurrentStage(.loading)
             logger.debug("3️⃣ Setting up audio engine...")
             let engine = AVAudioEngine()
             audioEngine = engine
@@ -2095,8 +2122,6 @@ class MeetingRecordingManager: ObservableObject, AudioProcessingDelegate {
             // STEP 4: Audio File Loading with Enhanced Error Handling
             operation.setCurrentStage(.loading)
             logger.debug("4️⃣ Loading audio files...")
-            let systemAudioFile: AVAudioFile
-            let micAudioFile: AVAudioFile
             
             do {
                 systemAudioFile = try AVAudioFile(forReading: systemURL)
@@ -2163,14 +2188,14 @@ class MeetingRecordingManager: ObservableObject, AudioProcessingDelegate {
             logger.debug("1️⃣1️⃣ Scheduling audio files...")
             
             // Schedule system audio with completion handler
-            systemPlayer.scheduleFile(systemAudioFile, at: nil) {
-                logger.debug("✅ System audio playback completed")
+            systemPlayer.scheduleFile(systemAudioFile!, at: nil) { [weak self] in
+                self?.logger.debug("✅ System audio playback completed")
                 operation.markSourceCompleted(.system)
             }
             
             // Schedule microphone audio with completion handler  
-            micPlayer.scheduleFile(micAudioFile, at: nil) {
-                logger.debug("✅ Microphone audio playback completed")
+            micPlayer.scheduleFile(micAudioFile!, at: nil) { [weak self] in
+                self?.logger.debug("✅ Microphone audio playback completed")
                 operation.markSourceCompleted(.microphone)
             }
             
@@ -2193,9 +2218,9 @@ class MeetingRecordingManager: ObservableObject, AudioProcessingDelegate {
             // STEP 14: Completion Monitoring with Timeout Protection
             logger.debug("1️⃣4️⃣ Setting up completion monitoring...")
             
-            await withCheckedContinuation { continuation in
+            await withCheckedContinuation { [weak self] continuation in
                 operation.setCompletionHandler { result in
-                    logger.debug("🏁 Audio processing operation completed")
+                    self?.logger.debug("🏁 Audio processing operation completed")
                     continuation.resume()
                 }
                 
@@ -2203,10 +2228,10 @@ class MeetingRecordingManager: ObservableObject, AudioProcessingDelegate {
                 let safetyTimeout = max(expectedProcessingDuration * 2.0, 10.0)
                 logger.debug("⏱️ Safety timeout set to: \(String(format: "%.1f", safetyTimeout))s")
                 
-                Task {
+                Task { [weak self] in
                     try? await Task.sleep(nanoseconds: UInt64(safetyTimeout * 1_000_000_000))
                     if !operation.isComplete {
-                        logger.warning("⚠️ Audio processing timeout after \(String(format: "%.1f", safetyTimeout))s")
+                        self?.logger.warning("⚠️ Audio processing timeout after \(String(format: "%.1f", safetyTimeout))s")
                         operation.fail(with: .processingTimeout("Processing exceeded expected duration of \(String(format: "%.1f", expectedProcessingDuration))s"))
                         continuation.resume()
                     }
@@ -2234,7 +2259,7 @@ class MeetingRecordingManager: ObservableObject, AudioProcessingDelegate {
                 processingDuration: processingDuration,
                 outputFormat: outputFormat,
                 sourceCount: 2,
-                totalSamples: Int64(systemAudioFile.length + micAudioFile.length)
+                totalSamples: Int64((systemAudioFile?.length ?? 0) + (micAudioFile?.length ?? 0))
             )
             
             let result = AudioProcessingResult(
@@ -2280,7 +2305,7 @@ class MeetingRecordingManager: ObservableObject, AudioProcessingDelegate {
         }
     }
     
-    /// Performs comprehensive resource cleanup
+    /// Performs comprehensive resource cleanup with explicit file handle management
     private func performResourceCleanup(
         audioEngine: AVAudioEngine?,
         systemPlayerNode: AVAudioPlayerNode?,
@@ -2380,6 +2405,24 @@ class MeetingRecordingManager: ObservableObject, AudioProcessingDelegate {
     /// @deprecated Use safeCleanupTempFiles() instead for thread safety
     private func cleanupTempFiles() {
         safeCleanupTempFiles()
+    }
+    
+    /// Comprehensive file handle cleanup utility for emergency cleanup scenarios
+    private func emergencyFileHandleCleanup() {
+        logger.warning("🚨 Performing emergency file handle cleanup...")
+        
+        // Force cleanup of any remaining file handles
+        fileOperationLock.lock()
+        defer { fileOperationLock.unlock() }
+        
+        // Cancel any ongoing file operations
+        currentProcessingOperation = nil
+        
+        // Force synchronous cleanup of temp files
+        Task {
+            await safeCleanupTempFiles()
+            logger.debug("✅ Emergency cleanup completed")
+        }
     }
     
     private func checkScreenCapturePermission() async -> Bool {

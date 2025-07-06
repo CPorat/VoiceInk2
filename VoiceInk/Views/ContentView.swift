@@ -6,6 +6,7 @@ import KeyboardShortcuts
 enum ViewType: String, CaseIterable {
     case metrics = "Dashboard"
     case transcribeAudio = "Transcribe Audio"
+    case meetingRecording = "Meeting Recording"
     case history = "History"
     case models = "AI Models"
     case enhancement = "Enhancement"
@@ -20,6 +21,7 @@ enum ViewType: String, CaseIterable {
         switch self {
         case .metrics: return "gauge.medium"
         case .transcribeAudio: return "waveform.circle.fill"
+        case .meetingRecording: return "record.circle"
         case .history: return "doc.text.fill"
         case .models: return "brain.head.profile"
         case .enhancement: return "wand.and.stars"
@@ -232,6 +234,8 @@ struct ContentView: View {
             EnhancementSettingsView()
         case .transcribeAudio:
             AudioTranscribeView()
+        case .meetingRecording:
+            MeetingRecordingView()
         case .history:
             TranscriptionHistoryView()
         case .audioInput:

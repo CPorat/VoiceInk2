@@ -46,6 +46,19 @@ struct MiniRecorderView: View {
                             .frame(width: 24)
                             .padding(.leading, 8)
                             
+                            // Meeting Recording Button
+                            Button(action: {
+                                Task { await whisperState.toggleMeetingRecording() }
+                            }) {
+                                Image(systemName: whisperState.isMeetingRecording ? "record.circle.fill" : "record.circle")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(whisperState.isMeetingRecording ? .red : .white.opacity(0.6))
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                            .frame(width: 16)
+                            .padding(.leading, 4)
+                            .disabled(whisperState.isRecording || whisperState.isMeetingRecordingProcessing) // Prevent conflicts
+                            
                             Group {
                                 if whisperState.isProcessing {
                                     StaticVisualizer(color: .white)

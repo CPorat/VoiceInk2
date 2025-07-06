@@ -34,7 +34,11 @@ class WhisperState: NSObject, ObservableObject, AVAudioRecorderDelegate {
     
     @Published var isVisualizerActive = false
     
-
+    // Meeting Recording Properties
+    @Published var isMeetingRecording = false
+    @Published var meetingRecordingDuration: TimeInterval = 0
+    @Published var meetingRecordingError: String?
+    @Published var isMeetingRecordingProcessing = false
     
     @Published var isMiniRecorderVisible = false {
         didSet {
@@ -87,6 +91,9 @@ class WhisperState: NSObject, ObservableObject, AVAudioRecorderDelegate {
     var notchWindowManager: NotchWindowManager?
     var miniWindowManager: MiniWindowManager?
     
+    // Meeting Recording Manager
+    @Published var meetingRecordingManager: MeetingRecordingManager?
+    
     // For model progress tracking
     @Published var downloadProgress: [String: Double] = [:]
     
@@ -104,6 +111,9 @@ class WhisperState: NSObject, ObservableObject, AVAudioRecorderDelegate {
         
         // Set the whisperState reference after super.init()
         self.localTranscriptionService = LocalTranscriptionService(modelsDirectory: self.modelsDirectory, whisperState: self)
+        
+        // Initialize meeting recording manager
+        self.meetingRecordingManager = MeetingRecordingManager()
         
         setupNotifications()
         createModelsDirectoryIfNeeded()
@@ -538,6 +548,96 @@ class WhisperState: NSObject, ObservableObject, AVAudioRecorderDelegate {
 
     func getEnhancementService() -> AIEnhancementService? {
         return enhancementService
+    }
+    
+    // MARK: - Meeting Recording Methods
+    
+    func toggleMeetingRecording() async {
+        guard let manager = meetingRecordingManager else {
+            logger.error("❌ Meeting recording manager not available")
+            return
+        }
+        
+        if isMeetingRecording {
+            await stopMeetingRecording()
+        } else {
+            await startMeetingRecording()
+        }
+    }
+    
+    func startMeetingRecording() async {
+        guard let manager = meetingRecordingManager else {
+            logger.error("❌ Meeting recording manager not available")
+            return
+        }
+        
+        logger.notice("🎙️ Starting meeting recording...")
+        
+        // Check permissions first
+        let hasPermissions = await manager.checkPermissions()
+        guard hasPermissions else {
+            await MainActor.run {
+                meetingRecordingError = "Screen recording permission required"
+                NotificationManager.shared.showNotification(
+                    title: "Permission Required",
+                    type: .error
+                )
+            }
+            return
+        }
+        
+        do {
+            await manager.startMeetingRecording()
+            
+            await MainActor.run {
+                isMeetingRecording = manager.isRecording
+                meetingRecordingError = manager.recordingError
+                isMeetingRecordingProcessing = manager.isProcessing
+            }
+            
+            // Start duration tracking
+            startMeetingRecordingDurationTracking()
+            
+        } catch {
+            logger.error("❌ Failed to start meeting recording: \(error.localizedDescription)")
+            await MainActor.run {
+                meetingRecordingError = "Failed to start recording: \(error.localizedDescription)"
+                NotificationManager.shared.showNotification(
+                    title: "Recording Failed",
+                    type: .error
+                )
+            }
+        }
+    }
+    
+    func stopMeetingRecording() async {
+        guard let manager = meetingRecordingManager else {
+            logger.error("❌ Meeting recording manager not available")
+            return
+        }
+        
+        logger.notice("🛑 Stopping meeting recording...")
+        
+        await manager.stopMeetingRecording()
+        
+        await MainActor.run {
+            isMeetingRecording = manager.isRecording
+            meetingRecordingDuration = manager.recordingDuration
+            meetingRecordingError = manager.recordingError
+            isMeetingRecordingProcessing = manager.isProcessing
+        }
+        
+        stopMeetingRecordingDurationTracking()
+    }
+    
+    private func startMeetingRecordingDurationTracking() {
+        // This will be updated by the MeetingRecordingManager's published properties
+        // We can observe those changes in the UI directly
+    }
+    
+    private func stopMeetingRecordingDurationTracking() {
+        // Reset duration when recording stops
+        meetingRecordingDuration = 0
     }
     
     func refreshAllAvailableModels() {
