@@ -22,6 +22,9 @@ struct VoiceInkApp: App {
     private let audioCleanupManager = AudioCleanupManager.shared
     
     init() {
+        // Clean up legacy license-related UserDefaults keys
+        cleanupLegacyUserDefaults()
+        
         do {
             let schema = Schema([
                 Transcription.self
@@ -80,6 +83,24 @@ struct VoiceInkApp: App {
         activeWindowService.configure(with: enhancementService)
         activeWindowService.configureWhisperState(whisperState)
         _activeWindowService = StateObject(wrappedValue: activeWindowService)
+    }
+    
+    private func cleanupLegacyUserDefaults() {
+        let defaults = UserDefaults.standard
+        let cleanupFlag = "hasCompletedV2LicenseRemoval"
+        
+        if !defaults.bool(forKey: cleanupFlag) {
+            print("Performing one-time cleanup of legacy license keys...")
+            defaults.removeObject(forKey: "VoiceInkActivationId")
+            defaults.removeObject(forKey: "licenseKey")
+            defaults.removeObject(forKey: "VoiceInkLicenseRequiresActivation")
+            defaults.removeObject(forKey: "trialStartDate")
+            defaults.removeObject(forKey: "VoiceInkHasLaunchedBefore")
+            defaults.removeObject(forKey: "VoiceInkDeviceIdentifier")
+            
+            defaults.set(true, forKey: cleanupFlag)
+            print("License cleanup complete.")
+        }
     }
     
     var body: some Scene {
